@@ -35,3 +35,8 @@ build/
 ##IMPORTANT
 *.env
 *.properties
+
+### Secrets / Config sensible ###
+src/main/resources/
+!src/main/resources/static/
+!src/main/resources/templates/
