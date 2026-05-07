@@ -30,7 +30,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
                         .requestMatchers("/api/v1/geo/**", "/api/v1/health",
                                 "/swagger-ui/**", "/swagger-ui.html",
-                                "/v3/api-docs/**").permitAll()
+                                "/v3/api-docs", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(apiKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
