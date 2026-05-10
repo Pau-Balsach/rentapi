@@ -8,15 +8,16 @@ import com.rentapi.rentapi.repository.CiudadRepository;
 import com.rentapi.rentapi.repository.PisoRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -26,115 +27,133 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class HabitacliaScraper {
 
-    private final CiudadRepository ciudadRepo;
-    private final BarrioRepository barrioRepo;
-    private final PisoRepository pisoRepo;
+    private final CiudadRepository  ciudadRepo;
+    private final BarrioRepository   barrioRepo;
+    private final PisoRepository     pisoRepo;
+    private final BrowserHttpClient  httpClient;
+    private static final int MAX_PAGINAS = 10;
 
-    private static final String BASE_URL   = "https://www.habitaclia.com";
-    private static final String USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                    "AppleWebKit/537.36 (KHTML, like Gecko) " +
-                    "Chrome/124.0.0.0 Safari/537.36";
+    @Value("${habitaclia.cookie.awsalb:}")
+    private String cookieAwsalb;
 
-    // "311m2 - 4 habitaciones - 4 baños - 23,47€/m2"
-    private static final Pattern M2_PATTERN     = Pattern.compile("(\\d+)m2");
-    private static final Pattern HAB_PATTERN    = Pattern.compile("(\\d+)\\s+habitacion");
-    private static final Pattern PRECIO_PATTERN = Pattern.compile("[\\d\\.]+");
-    // fuenteId: número al final del slug antes de .htm → "-i2277003488164.htm"
-    private static final Pattern ID_PATTERN     = Pattern.compile("-i(\\d+)\\.htm");
+    @Value("${habitaclia.cookie.awsalbcors:}")
+    private String cookieAwsalbcors;
+
+    @Value("${habitaclia.cookie.borostcf:}")
+    private String cookieBorostcf;
+
+    @Value("${habitaclia.cookie.aspsession:}")
+    private String cookieAspsession;
+
+    private static final String BASE_URL = "https://www.habitaclia.com";
+
+    // ID del anuncio al final del slug: "-i2277003488164.htm"
+    private static final Pattern ID_PATTERN = Pattern.compile("-i(\\d+)\\.htm");
 
     // ─── Entrada principal ────────────────────────────────────────────────────
 
     public void scrapeCiudad(String ciudadSlug) {
+        if (cookieAwsalb != null && !cookieAwsalb.isBlank()) {
+            Map<String, String> cookies = Map.of(
+                    "AWSALB",               cookieAwsalb,
+                    "AWSALBCORS",           cookieAwsalbcors,
+                    "borosTcf",             cookieBorostcf,
+                    "ASPSESSIONIDAQRTASDB", cookieAspsession
+            );
+            log.info("[Habitaclia] Cookies: awsalb='{}' aspsession='{}'",
+                    cookieAwsalb, cookieAspsession);
+            httpClient.setCookies("www.habitaclia.com", cookies);
+            log.info("[Habitaclia] Cookies de sesión inyectadas.");
+        }
         Optional<Ciudad> ciudadOpt = ciudadRepo.findBySlug(ciudadSlug);
         if (ciudadOpt.isEmpty()) {
-            log.warn("Ciudad no encontrada en BD: {}", ciudadSlug);
+            log.warn("[Habitaclia] Ciudad no encontrada en BD: {}", ciudadSlug);
             return;
         }
         Ciudad ciudad = ciudadOpt.get();
-        // URL de Habitaclia: /alquiler-barcelona.htm, /alquiler-madrid.htm
         String startUrl = BASE_URL + "/alquiler-" + ciudadSlug + ".htm";
 
-        log.info("Iniciando scraping Habitaclia de {} → {}", ciudadSlug, startUrl);
+        log.info("[Habitaclia] Iniciando scraping de {} → {}", ciudadSlug, startUrl);
         scrapePaginas(startUrl, ciudad);
     }
 
     public void scrapeDesdeArchivoLocal(String rutaHtml, String ciudadSlug) {
         Optional<Ciudad> ciudadOpt = ciudadRepo.findBySlug(ciudadSlug);
         if (ciudadOpt.isEmpty()) {
-            log.warn("Ciudad no encontrada en BD: {}", ciudadSlug);
+            log.warn("[Habitaclia] Ciudad no encontrada en BD: {}", ciudadSlug);
             return;
         }
         try {
-            Document doc = Jsoup.parse(new java.io.File(rutaHtml), "UTF-8", BASE_URL);
+            Document doc = org.jsoup.Jsoup.parse(new java.io.File(rutaHtml), "UTF-8", BASE_URL);
             List<Piso> pisos = parsePisos(doc, ciudadOpt.get());
             guardarPisos(pisos);
-            log.info("Pisos parseados del archivo local: {}", pisos.size());
+            log.info("[Habitaclia] Pisos parseados del archivo local: {}", pisos.size());
         } catch (Exception e) {
-            log.error("Error leyendo archivo local: {}", e.getMessage());
+            log.error("[Habitaclia] Error leyendo archivo local: {}", e.getMessage());
         }
     }
 
     // ─── Paginación ───────────────────────────────────────────────────────────
 
     private void scrapePaginas(String startUrl, Ciudad ciudad) {
-        String url = startUrl;
-        int pagina = 1;
+        String url     = startUrl;
+        String referer = null;
+        int pagina     = 1;
+        int totalPisos = 0;
 
         while (url != null) {
-            log.info("Scrapeando página {} → {}", pagina, url);
+            log.info("[Habitaclia] Página {} → {}", pagina, url);
             try {
-                Document doc = fetchDocument(url);
+                // fetchDocument ahora usa BrowserHttpClient (TLS de Chrome + cabeceras reales)
+                Document doc     = httpClient.fetchDocument(url, referer);
                 List<Piso> pisos = parsePisos(doc, ciudad);
                 guardarPisos(pisos);
-                log.info("Página {}: {} pisos procesados", pagina, pisos.size());
+                totalPisos += pisos.size();
+                log.info("[Habitaclia] Página {}: {} pisos (total: {})", pagina, pisos.size(), totalPisos);
 
-                url = siguientePagina(doc);
+                referer = url;
+                url = siguientePagina(doc, ciudadSlug(startUrl), pagina);
                 pagina++;
-                esperarRandom(3000, 6000);
 
+                if (pagina > MAX_PAGINAS) {
+                    log.info("[Habitaclia] Límite de {} páginas alcanzado.", MAX_PAGINAS);
+                    break;
+                }
+
+            } catch (ScraperBlockedException e) {
+                // WAF nos bloqueó — loguear y parar limpiamente (no reintentar)
+                log.error("[Habitaclia] Bloqueado por WAF en página {}: {}", pagina, e.getMessage());
+                break;
             } catch (Exception e) {
-                log.error("Error en página {}: {}", pagina, e.getMessage());
+                log.error("[Habitaclia] Error en página {}: {}", pagina, e.getMessage());
                 break;
             }
         }
-        log.info("Scraping Habitaclia completado. Total páginas: {}", pagina - 1);
-    }
-
-    // ─── Fetch ────────────────────────────────────────────────────────────────
-
-    private Document fetchDocument(String url) throws Exception {
-        return Jsoup.connect(url)
-                .userAgent(USER_AGENT)
-                .header("Accept-Language", "es-ES,es;q=0.9")
-                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-                .timeout(15_000)
-                .get();
+        log.info("[Habitaclia] Fin. Páginas: {}, Pisos totales: {}", pagina - 1, totalPisos);
     }
 
     // ─── Parser principal ─────────────────────────────────────────────────────
 
     private List<Piso> parsePisos(Document doc, Ciudad ciudad) {
         List<Piso> resultado = new ArrayList<>();
-
         Elements articles = doc.select("article");
+        log.debug("[Habitaclia] Artículos encontrados: {}", articles.size());
 
         for (Element art : articles) {
-            if (!art.text().contains("€")) continue;
             try {
                 Piso piso = parseArticle(art, ciudad);
                 if (piso != null) resultado.add(piso);
             } catch (Exception e) {
-                log.warn("Error parseando artículo Habitaclia: {}", e.getMessage());
+                log.warn("[Habitaclia] Error parseando artículo: {}", e.getMessage());
             }
         }
         return resultado;
     }
 
     private Piso parseArticle(Element art, Ciudad ciudad) {
-        // ── fuenteId — del href del enlace ───────────────────────────────────
-        Element enlace = art.selectFirst("a[href*='habitaclia.com']");
-        if (enlace == null) enlace = art.selectFirst("a[href]");
+
+        // ── 1. fuenteId ───────────────────────────────────────────────────────
+        Element enlace = art.selectFirst("a[href]");
         if (enlace == null) return null;
 
         String href = enlace.attr("href");
@@ -142,60 +161,53 @@ public class HabitacliaScraper {
         if (!idMatcher.find()) return null;
         String fuenteId = idMatcher.group(1);
 
-        // ── Textos del artículo ──────────────────────────────────────────────
-        List<String> textos = new ArrayList<>();
-        for (Element el : art.select("span, p, li, a")) {
-            String t = el.text().trim();
-            if (!t.isEmpty() && t.length() < 100) textos.add(t);
+        // ── 2. Precio, m², habitaciones ───────────────────────────────────────
+        Element notify = art.selectFirst(".js-notify");
+
+        BigDecimal precioMes  = null;
+        Integer    metros     = null;
+        Short      habitaciones = null;
+
+        if (notify != null) {
+            String pvp = notify.attr("data-pvp");
+            if (!pvp.isBlank()) {
+                try { precioMes = new BigDecimal(pvp.trim()); } catch (Exception ignored) {}
+            }
+
+            String sup = notify.attr("data-sup");
+            if (!sup.isBlank()) {
+                try { metros = Integer.parseInt(sup.trim()); } catch (Exception ignored) {}
+            }
+
+            String hab = notify.attr("data-hab");
+            if (!hab.isBlank()) {
+                try { habitaciones = Short.parseShort(hab.trim()); } catch (Exception ignored) {}
+            }
         }
 
-        // ── Precio ───────────────────────────────────────────────────────────
-        // "7.300 €" — buscamos texto que contenga € pero NO €/m2
-        String precioText = textos.stream()
-                .filter(t -> t.contains("€") && !t.contains("€/m2") && !t.contains("€/m²"))
-                .filter(t -> !t.contains("-"))  // excluir línea de detalles
-                .findFirst().orElse(null);
-        if (precioText == null) return null;
-
-        String precioLimpio = precioText.replace(".", "").replace(",", ".").replaceAll("[^\\d.]", "");
-        if (precioLimpio.isEmpty()) return null;
-        BigDecimal precioMes;
-        try {
-            precioMes = new BigDecimal(precioLimpio.split("\\.")[0]);
-        } catch (Exception e) {
-            return null;
+        if (precioMes == null) {
+            precioMes = parsePrecioFallback(art);
         }
 
-        // ── Detalles: m2, habitaciones ───────────────────────────────────────
-        // "311m2 - 4 habitaciones - 4 baños - 23,47€/m2"
-        String detalles = textos.stream()
-                .filter(t -> t.contains("m2") && t.contains("habitacion"))
-                .findFirst().orElse("");
+        if (precioMes == null) return null;
 
-        Integer metros = null;
-        Matcher m2M = M2_PATTERN.matcher(detalles);
-        if (m2M.find()) metros = Integer.parseInt(m2M.group(1));
-
-        Short habitaciones = null;
-        Matcher habM = HAB_PATTERN.matcher(detalles);
-        if (habM.find()) habitaciones = Short.parseShort(habM.group(1));
-
-        // Estudio: sin habitaciones mencionadas o 0
-        if (habitaciones == null && detalles.contains("estudio")) habitaciones = 0;
-
-        // ── Barrio ───────────────────────────────────────────────────────────
-        // "Barcelona - Sant Gervasi - Galvany"
+        // ── 3. Barrio ─────────────────────────────────────────────────────────
         Barrio barrio = null;
-        String barrioText = textos.stream()
-                .filter(t -> t.contains(" - ") && t.toLowerCase().contains(ciudad.getNombre().toLowerCase()))
-                .findFirst().orElse(null);
-
-        if (barrioText != null) {
-            String[] partes = barrioText.split(" - ");
-            // La última parte suele ser el barrio más específico
+        Element locEl = art.selectFirst(".list-item-location span, .list-item-location");
+        if (locEl != null) {
+            String locText = locEl.text().trim();
+            String[] partes = locText.split(" - ");
             if (partes.length >= 2) {
-                String posibleBarrio = partes[partes.length - 1].trim();
-                barrio = inferirBarrio(posibleBarrio, ciudad);
+                String nombreBarrio = partes[partes.length - 1].trim();
+                barrio = inferirBarrio(nombreBarrio, ciudad);
+            }
+        }
+
+        // ── 4. Estudio ────────────────────────────────────────────────────────
+        if (habitaciones == null) {
+            String textoArt = art.text().toLowerCase();
+            if (textoArt.contains("estudio") || textoArt.contains("loft")) {
+                habitaciones = 0;
             }
         }
 
@@ -207,62 +219,119 @@ public class HabitacliaScraper {
                 .precioMes(precioMes)
                 .metrosCuadrados(metros)
                 .habitaciones(habitaciones)
-                .planta(null)  // Habitaclia no muestra planta en el listado
+                .planta(null)
                 .amueblado(null)
                 .permiteMascotas(null)
                 .activo(true)
                 .build();
     }
 
+    // ─── Fallback precio ──────────────────────────────────────────────────────
+
+    private BigDecimal parsePrecioFallback(Element art) {
+        for (Element el : art.select("span, p, strong, div")) {
+            String t = el.text().trim();
+            if (t.contains("€") && !t.contains("€/m") && t.length() < 30) {
+                String limpio = t.replace(".", "").replace(",", "")
+                        .replaceAll("[^\\d]", "");
+                if (!limpio.isEmpty()) {
+                    try {
+                        long valor = Long.parseLong(limpio);
+                        if (valor >= 200 && valor <= 30_000) {
+                            return new BigDecimal(valor);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        }
+        return null;
+    }
+
     // ─── Inferir barrio ───────────────────────────────────────────────────────
 
     private Barrio inferirBarrio(String nombreBarrio, Ciudad ciudad) {
         if (nombreBarrio == null || nombreBarrio.isBlank()) return null;
+        String buscar = nombreBarrio.toLowerCase();
         return barrioRepo.findByCiudad_Slug(ciudad.getSlug()).stream()
-                .filter(b -> nombreBarrio.toLowerCase()
-                        .contains(b.getNombre().toLowerCase()
-                                .substring(0, Math.min(5, b.getNombre().length()))))
+                .filter(b -> {
+                    String bn = b.getNombre().toLowerCase();
+                    return buscar.contains(bn) || bn.contains(buscar);
+                })
                 .findFirst()
                 .orElse(null);
     }
 
-    // ─── Paginación ───────────────────────────────────────────────────────────
+    // ─── Siguiente página ─────────────────────────────────────────────────────
 
-    /**
-     * Habitaclia pagina así:
-     *   Página 1: /alquiler-barcelona.htm
-     *   Página 2: /alquiler-barcelona-2.htm
-     */
-    private String siguientePagina(Document doc) {
-        Element next = doc.selectFirst("a[rel='next'], a[aria-label='Siguiente'], .next a, [class*='next'] a");
+    private String siguientePagina(Document doc, String slug, int paginaActual) {
+        Element next = doc.selectFirst(
+                "a[rel='next'], " +
+                        "a[title='Siguiente página'], " +
+                        "a[aria-label='Siguiente'], " +
+                        ".pagination a[class*='next'], " +
+                        "li.next a"
+        );
         if (next != null) {
             String href = next.attr("href");
-            return href.startsWith("http") ? href : BASE_URL + href;
+            if (!href.isBlank()) {
+                return href.startsWith("http") ? href : BASE_URL + href;
+            }
         }
+
+        int articulosEnPagina = doc.select("article").size();
+        if (articulosEnPagina > 0) {
+            String urlSiguiente = BASE_URL + "/alquiler-" + slug + "-" + paginaActual + ".htm";
+            Element paginadorActivo = doc.selectFirst(
+                    ".pagination .active, .pagination [aria-current='page']"
+            );
+            if (paginadorActivo != null) {
+                Element ultimaOpcion = doc.selectFirst(
+                        ".pagination li:last-child a, .pagination a:last-child"
+                );
+                if (ultimaOpcion != null) {
+                    String hrefUltima = ultimaOpcion.attr("href");
+                    if (hrefUltima.contains("-" + paginaActual + ".htm")) return null;
+                }
+            }
+            return urlSiguiente;
+        }
+
         return null;
     }
 
     // ─── Guardar en BD ────────────────────────────────────────────────────────
 
     private void guardarPisos(List<Piso> pisos) {
+        int nuevos = 0, actualizados = 0;
         for (Piso piso : pisos) {
             try {
                 Optional<Piso> existente = pisoRepo.findByFuenteAndFuenteId("habitaclia", piso.getFuenteId());
                 if (existente.isPresent()) {
                     Piso p = existente.get();
                     p.setPrecioMes(piso.getPrecioMes());
+                    p.setMetrosCuadrados(piso.getMetrosCuadrados());
+                    p.setHabitaciones(piso.getHabitaciones());
                     p.setActivo(true);
                     pisoRepo.save(p);
+                    actualizados++;
                 } else {
                     pisoRepo.save(piso);
+                    nuevos++;
                 }
             } catch (Exception e) {
-                log.warn("Error guardando piso fuenteId={}: {}", piso.getFuenteId(), e.getMessage());
+                log.warn("[Habitaclia] Error guardando piso fuenteId={}: {}", piso.getFuenteId(), e.getMessage());
             }
         }
+        log.info("[Habitaclia] BD → {} nuevos, {} actualizados", nuevos, actualizados);
     }
 
     // ─── Helpers ──────────────────────────────────────────────────────────────
+
+    private String ciudadSlug(String startUrl) {
+        return startUrl
+                .replace(BASE_URL + "/alquiler-", "")
+                .replace(".htm", "");
+    }
 
     private void esperarRandom(int minMs, int maxMs) {
         try {

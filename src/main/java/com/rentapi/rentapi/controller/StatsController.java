@@ -37,15 +37,14 @@ public class StatsController {
 
     @GetMapping("/ciudad/{slug}")
     @Operation(
-        summary = "Estadísticas de una ciudad",
-        description = "Devuelve estadísticas agregadas de alquiler para una ciudad completa: " +
-                      "precios, distribución por tipología y tendencia mensual."
+            summary = "Estadísticas de una ciudad",
+            description = "Devuelve estadísticas agregadas de alquiler para una ciudad completa: " +
+                    "precios, distribución por tipología y tendencia mensual."
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Estadísticas devueltas correctamente"),
-        @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
-        @ApiResponse(responseCode = "404", description = "Ciudad no encontrada"),
-        @ApiResponse(responseCode = "429", description = "Límite de peticiones diarias superado")
+            @ApiResponse(responseCode = "200", description = "Estadísticas devueltas correctamente"),
+            @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
+            @ApiResponse(responseCode = "404", description = "Ciudad no encontrada")
     })
     public ResponseEntity<StatsDTO.CiudadStatsResponse> getStatsCiudad(
             @PathVariable String slug,
@@ -58,15 +57,12 @@ public class StatsController {
             HttpServletRequest request) {
 
         Usuario usuario = getUsuario(request);
-        rateLimitService.checkAndIncrement(usuario, "/api/v1/stats/ciudad/{slug}");
+        rateLimitService.registrar(usuario, "/api/v1/stats/ciudad/{slug}");
 
         StatsDTO.CiudadStatsResponse respuesta =
                 statsService.getStatsCiudad(slug, habitaciones, fechaInicio, fechaFin);
 
-        return ResponseEntity.ok()
-                .header("X-RateLimit-Remaining",
-                        String.valueOf(rateLimitService.peticionesRestantes(usuario)))
-                .body(respuesta);
+        return ResponseEntity.ok(respuesta);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -75,15 +71,14 @@ public class StatsController {
 
     @GetMapping("/barrio/{ciudadSlug}/{barrioSlug}")
     @Operation(
-        summary = "Estadísticas de un barrio",
-        description = "Devuelve estadísticas detalladas para un barrio concreto, " +
-                      "incluyendo comparativa porcentual respecto a la media de la ciudad."
+            summary = "Estadísticas de un barrio",
+            description = "Devuelve estadísticas detalladas para un barrio concreto, " +
+                    "incluyendo comparativa porcentual respecto a la media de la ciudad."
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Estadísticas devueltas correctamente"),
-        @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
-        @ApiResponse(responseCode = "404", description = "Barrio o ciudad no encontrados"),
-        @ApiResponse(responseCode = "429", description = "Límite de peticiones diarias superado")
+            @ApiResponse(responseCode = "200", description = "Estadísticas devueltas correctamente"),
+            @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
+            @ApiResponse(responseCode = "404", description = "Barrio o ciudad no encontrados")
     })
     public ResponseEntity<StatsDTO.BarrioStatsResponse> getStatsBarrio(
             @PathVariable String ciudadSlug,
@@ -94,15 +89,12 @@ public class StatsController {
             HttpServletRequest request) {
 
         Usuario usuario = getUsuario(request);
-        rateLimitService.checkAndIncrement(usuario, "/api/v1/stats/barrio/{ciudad}/{barrio}");
+        rateLimitService.registrar(usuario, "/api/v1/stats/barrio/{ciudad}/{barrio}");
 
         StatsDTO.BarrioStatsResponse respuesta =
                 statsService.getStatsBarrio(ciudadSlug, barrioSlug, habitaciones, fechaInicio, fechaFin);
 
-        return ResponseEntity.ok()
-                .header("X-RateLimit-Remaining",
-                        String.valueOf(rateLimitService.peticionesRestantes(usuario)))
-                .body(respuesta);
+        return ResponseEntity.ok(respuesta);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -111,15 +103,14 @@ public class StatsController {
 
     @GetMapping("/tendencia/{slug}")
     @Operation(
-        summary = "Evolución histórica de precios",
-        description = "Serie temporal mensual del precio de alquiler en una ciudad o barrio. " +
-                      "Incluye variación total del periodo y del último mes."
+            summary = "Evolución histórica de precios",
+            description = "Serie temporal mensual del precio de alquiler en una ciudad o barrio. " +
+                    "Incluye variación total del periodo y del último mes."
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Serie temporal devuelta correctamente"),
-        @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
-        @ApiResponse(responseCode = "404", description = "Zona no encontrada o sin datos"),
-        @ApiResponse(responseCode = "429", description = "Límite de peticiones diarias superado")
+            @ApiResponse(responseCode = "200", description = "Serie temporal devuelta correctamente"),
+            @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
+            @ApiResponse(responseCode = "404", description = "Zona no encontrada o sin datos")
     })
     public ResponseEntity<StatsDTO.TendenciaResponse> getTendencia(
             @PathVariable String slug,
@@ -135,15 +126,12 @@ public class StatsController {
         }
 
         Usuario usuario = getUsuario(request);
-        rateLimitService.checkAndIncrement(usuario, "/api/v1/stats/tendencia/{slug}");
+        rateLimitService.registrar(usuario, "/api/v1/stats/tendencia/{slug}");
 
         StatsDTO.TendenciaResponse respuesta =
                 statsService.getTendencia(slug, tipo, meses, habitaciones);
 
-        return ResponseEntity.ok()
-                .header("X-RateLimit-Remaining",
-                        String.valueOf(rateLimitService.peticionesRestantes(usuario)))
-                .body(respuesta);
+        return ResponseEntity.ok(respuesta);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -152,15 +140,14 @@ public class StatsController {
 
     @GetMapping("/comparar")
     @Operation(
-        summary = "Comparar zonas",
-        description = "Compara estadísticas de alquiler entre 2 y 5 ciudades o barrios. " +
-                      "Para barrios, usar el formato 'ciudad-slug/barrio-slug' en cada zona."
+            summary = "Comparar zonas",
+            description = "Compara estadísticas de alquiler entre 2 y 5 ciudades o barrios. " +
+                    "Para barrios, usar el formato 'ciudad-slug/barrio-slug' en cada zona."
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Comparativa generada correctamente"),
-        @ApiResponse(responseCode = "400", description = "Parámetros incorrectos"),
-        @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
-        @ApiResponse(responseCode = "429", description = "Límite de peticiones diarias superado")
+            @ApiResponse(responseCode = "200", description = "Comparativa generada correctamente"),
+            @ApiResponse(responseCode = "400", description = "Parámetros incorrectos"),
+            @ApiResponse(responseCode = "401", description = "API Key no válida o ausente")
     })
     public ResponseEntity<StatsDTO.ComparativaResponse> comparar(
             @Parameter(description = "Slugs separados por comas, máx. 5. Ej: barcelona,madrid,valencia")
@@ -178,15 +165,12 @@ public class StatsController {
         }
 
         Usuario usuario = getUsuario(request);
-        rateLimitService.checkAndIncrement(usuario, "/api/v1/stats/comparar");
+        rateLimitService.registrar(usuario, "/api/v1/stats/comparar");
 
         StatsDTO.ComparativaResponse respuesta =
                 statsService.comparar(slugs, tipo, habitaciones, fechaInicio, fechaFin);
 
-        return ResponseEntity.ok()
-                .header("X-RateLimit-Remaining",
-                        String.valueOf(rateLimitService.peticionesRestantes(usuario)))
-                .body(respuesta);
+        return ResponseEntity.ok(respuesta);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -195,14 +179,13 @@ public class StatsController {
 
     @GetMapping("/ranking")
     @Operation(
-        summary = "Ranking de zonas por precio",
-        description = "Devuelve un ranking de ciudades o barrios ordenado por precio medio por m². " +
-                      "Opcionalmente filtrable por provincia."
+            summary = "Ranking de zonas por precio",
+            description = "Devuelve un ranking de ciudades o barrios ordenado por precio medio por m². " +
+                    "Opcionalmente filtrable por provincia."
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Ranking generado correctamente"),
-        @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
-        @ApiResponse(responseCode = "429", description = "Límite de peticiones diarias superado")
+            @ApiResponse(responseCode = "200", description = "Ranking generado correctamente"),
+            @ApiResponse(responseCode = "401", description = "API Key no válida o ausente")
     })
     public ResponseEntity<StatsDTO.RankingResponse> getRanking(
             @Parameter(description = "Tipo: 'ciudad' (default) o 'barrio'")
@@ -220,15 +203,12 @@ public class StatsController {
         }
 
         Usuario usuario = getUsuario(request);
-        rateLimitService.checkAndIncrement(usuario, "/api/v1/stats/ranking");
+        rateLimitService.registrar(usuario, "/api/v1/stats/ranking");
 
         StatsDTO.RankingResponse respuesta =
                 statsService.getRanking(tipo, orden, provincia, limite);
 
-        return ResponseEntity.ok()
-                .header("X-RateLimit-Remaining",
-                        String.valueOf(rateLimitService.peticionesRestantes(usuario)))
-                .body(respuesta);
+        return ResponseEntity.ok(respuesta);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -237,16 +217,15 @@ public class StatsController {
 
     @GetMapping("/evaluar")
     @Operation(
-        summary = "Evaluar un precio de alquiler",
-        description = "Dado un precio y una zona, indica si está por encima, en rango o por debajo " +
-                      "del mercado. Calcula el percentil del precio consultado en su zona."
+            summary = "Evaluar un precio de alquiler",
+            description = "Dado un precio y una zona, indica si está por encima, en rango o por debajo " +
+                    "del mercado. Calcula el percentil del precio consultado en su zona."
     )
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Evaluación realizada correctamente"),
-        @ApiResponse(responseCode = "400", description = "Faltan parámetros requeridos"),
-        @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
-        @ApiResponse(responseCode = "404", description = "Zona sin datos disponibles"),
-        @ApiResponse(responseCode = "429", description = "Límite de peticiones diarias superado")
+            @ApiResponse(responseCode = "200", description = "Evaluación realizada correctamente"),
+            @ApiResponse(responseCode = "400", description = "Faltan parámetros requeridos"),
+            @ApiResponse(responseCode = "401", description = "API Key no válida o ausente"),
+            @ApiResponse(responseCode = "404", description = "Zona sin datos disponibles")
     })
     public ResponseEntity<StatsDTO.EvaluacionResponse> evaluar(
             @Parameter(description = "Slug de la ciudad (requerido)", required = true)
@@ -266,15 +245,12 @@ public class StatsController {
         }
 
         Usuario usuario = getUsuario(request);
-        rateLimitService.checkAndIncrement(usuario, "/api/v1/stats/evaluar");
+        rateLimitService.registrar(usuario, "/api/v1/stats/evaluar");
 
         StatsDTO.EvaluacionResponse respuesta =
                 statsService.evaluar(ciudad, barrio, precio, habitaciones, m2);
 
-        return ResponseEntity.ok()
-                .header("X-RateLimit-Remaining",
-                        String.valueOf(rateLimitService.peticionesRestantes(usuario)))
-                .body(respuesta);
+        return ResponseEntity.ok(respuesta);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -285,7 +261,6 @@ public class StatsController {
     private Usuario getUsuario(HttpServletRequest request) {
         Usuario usuario = (Usuario) request.getAttribute("usuario");
         if (usuario == null) {
-
             throw new IllegalStateException("Usuario no autenticado.");
         }
         return usuario;
