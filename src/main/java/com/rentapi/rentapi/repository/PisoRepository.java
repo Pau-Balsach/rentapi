@@ -16,6 +16,10 @@ public interface PisoRepository extends JpaRepository<Piso, Long> {
 
     Optional<Piso> findByFuenteAndFuenteId(String fuente, String fuenteId);
 
+    // ─────────────────────────────────────────────────────────────
+    // QUERIES EXISTENTES — estadísticas agregadas
+    // ─────────────────────────────────────────────────────────────
+
     @Query(value = """
         SELECT AVG(p.precio_mes) FROM pisos p
         WHERE p.ciudad_id = :ciudadId
@@ -115,4 +119,77 @@ public interface PisoRepository extends JpaRepository<Piso, Long> {
 
     @Query("SELECT COUNT(p) FROM Piso p WHERE p.barrio.id = :barrioId AND p.activo = true")
     Long countActivosByBarrio(@Param("barrioId") Long barrioId);
+
+    // ─────────────────────────────────────────────────────────────
+    // NUEVAS QUERIES — listado de pisos individuales
+    // ─────────────────────────────────────────────────────────────
+
+    /**
+     * Todos los pisos activos de una ciudad, ordenados por precio ASC.
+     */
+    @Query("SELECT p FROM Piso p WHERE p.ciudad.slug = :ciudadSlug AND p.activo = true ORDER BY p.precioMes ASC")
+    List<Piso> findActivosByCiudadSlug(@Param("ciudadSlug") String ciudadSlug);
+
+    /**
+     * Todos los pisos activos de un barrio concreto dentro de una ciudad, ordenados por precio ASC.
+     */
+    @Query("""
+        SELECT p FROM Piso p
+        WHERE p.ciudad.slug = :ciudadSlug
+          AND p.barrio.slug = :barrioSlug
+          AND p.activo = true
+        ORDER BY p.precioMes ASC
+    """)
+    List<Piso> findActivosByCiudadSlugAndBarrioSlug(@Param("ciudadSlug") String ciudadSlug,
+                                                    @Param("barrioSlug") String barrioSlug);
+
+    /**
+     * Pisos activos con precio mensual menor o igual a precioMax, ordenados por precio ASC.
+     * Ciudad obligatoria; barrio opcional (null = toda la ciudad).
+     */
+    @Query("""
+        SELECT p FROM Piso p
+        WHERE p.ciudad.slug = :ciudadSlug
+          AND (:barrioSlug IS NULL OR p.barrio.slug = :barrioSlug)
+          AND p.precioMes <= :precioMax
+          AND p.activo = true
+        ORDER BY p.precioMes ASC
+    """)
+    List<Piso> findActivosByPrecioMaximo(@Param("ciudadSlug") String ciudadSlug,
+                                         @Param("barrioSlug") String barrioSlug,
+                                         @Param("precioMax") BigDecimal precioMax);
+
+    /**
+     * Pisos activos con precio mensual mayor o igual a precioMin, ordenados por precio ASC.
+     * Ciudad obligatoria; barrio opcional (null = toda la ciudad).
+     */
+    @Query("""
+        SELECT p FROM Piso p
+        WHERE p.ciudad.slug = :ciudadSlug
+          AND (:barrioSlug IS NULL OR p.barrio.slug = :barrioSlug)
+          AND p.precioMes >= :precioMin
+          AND p.activo = true
+        ORDER BY p.precioMes ASC
+    """)
+    List<Piso> findActivosByPrecioMinimo(@Param("ciudadSlug") String ciudadSlug,
+                                         @Param("barrioSlug") String barrioSlug,
+                                         @Param("precioMin") BigDecimal precioMin);
+
+    /**
+     * Pisos activos dentro de un rango de precio [precioMin, precioMax], ordenados por precio ASC.
+     * Ciudad obligatoria; barrio opcional (null = toda la ciudad).
+     */
+    @Query("""
+        SELECT p FROM Piso p
+        WHERE p.ciudad.slug = :ciudadSlug
+          AND (:barrioSlug IS NULL OR p.barrio.slug = :barrioSlug)
+          AND p.precioMes >= :precioMin
+          AND p.precioMes <= :precioMax
+          AND p.activo = true
+        ORDER BY p.precioMes ASC
+    """)
+    List<Piso> findActivosByRangoPrecio(@Param("ciudadSlug") String ciudadSlug,
+                                        @Param("barrioSlug") String barrioSlug,
+                                        @Param("precioMin") BigDecimal precioMin,
+                                        @Param("precioMax") BigDecimal precioMax);
 }
