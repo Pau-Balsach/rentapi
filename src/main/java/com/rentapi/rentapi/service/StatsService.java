@@ -36,6 +36,10 @@ public class StatsService {
     // GET /stats/ciudad/{slug}
     // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+    // GET /stats/ciudad/{slug}
+    // ─────────────────────────────────────────────────────────────
+
     public CiudadStatsResponse getStatsCiudad(String slug,
                                               Short habitaciones,
                                               LocalDate fechaInicio,
@@ -44,12 +48,15 @@ public class StatsService {
         Ciudad ciudad = ciudadRepo.findBySlug(slug)
                 .orElseThrow(() -> new ResourceNotFoundException("Ciudad no encontrada: " + slug));
 
-        // Filas con habitaciones=NULL → estadísticas globales (todas las tipologías)
         List<StatsCiudadMensual> filas = ciudadStatsRepo
                 .findByCiudad_SlugAndHabitacionesOrderByMesAsc(slug, habitaciones);
 
         filas = filtrarPorFechas(filas, fechaInicio, fechaFin,
                 stat -> stat.getMes(), stat -> stat.getMes());
+
+        // FIX: si el job insertó varias filas para el mismo mes, nos quedamos
+        // con la más reciente (mayor created_at) para cada mes.
+        filas = deduplicarPorMesCiudad(filas);
 
         if (filas.isEmpty()) {
             throw new ResourceNotFoundException(
@@ -73,7 +80,7 @@ public class StatsService {
                 .precioMes(buildPrecioMes(agregado))
                 .precioM2(PrecioM2.builder()
                         .media(agregado.getPrecioMedioM2())
-                        .mediana(null)   // no se precalcula mediana de m2
+                        .mediana(null)
                         .build())
                 .distribucionTipologia(distribucion)
                 .tendenciaMensual(tendencia)
@@ -99,6 +106,9 @@ public class StatsService {
 
         filas = filtrarPorFechasBarrio(filas, fechaInicio, fechaFin);
 
+        // FIX: deduplicar por mes por si el job insertó varias filas para el mismo mes.
+        filas = deduplicarPorMesBarrio(filas);
+
         if (filas.isEmpty()) {
             throw new ResourceNotFoundException(
                     "No hay estadísticas disponibles para: " + barrio.getNombre());
@@ -114,7 +124,6 @@ public class StatsService {
                         .build())
                 .collect(Collectors.toList());
 
-        // Comparativa con la media de la ciudad en el último mes
         ComparativaCiudad comparativa = calcularComparativaCiudad(
                 ciudadSlug, habitaciones, ultimoMesBarrio(filas), agregado.getPrecioMedio());
 
@@ -155,6 +164,11 @@ public class StatsService {
                     .filter(f -> !f.getMes().isBefore(desde))
                     .collect(Collectors.toList());
 
+            // FIX: agrupar por mes y quedarse con la fila más reciente de cada mes.
+            // Esto hace que la serie sea correcta aunque el job haya insertado
+            // múltiples filas para el mismo mes (en lugar de hacer UPSERT).
+            filas = deduplicarPorMesBarrio(filas);
+
             serie = filas.stream()
                     .map(f -> PuntoTendencia.builder()
                             .mes(f.getMes().format(MES_FMT))
@@ -162,12 +176,16 @@ public class StatsService {
                             .totalMuestras(f.getTotalMuestras())
                             .build())
                     .collect(Collectors.toList());
+
         } else {
             List<StatsCiudadMensual> filas = ciudadStatsRepo
                     .findByCiudad_SlugAndHabitacionesOrderByMesAsc(slug, habitaciones)
                     .stream()
                     .filter(f -> !f.getMes().isBefore(desde))
                     .collect(Collectors.toList());
+
+            // FIX: mismo problema — deduplicar por mes antes de construir la serie.
+            filas = deduplicarPorMesCiudad(filas);
 
             serie = filas.stream()
                     .map(f -> PuntoTendencia.builder()
@@ -182,9 +200,9 @@ public class StatsService {
             throw new ResourceNotFoundException("No hay datos de tendencia para: " + slug);
         }
 
-        String variacionTotal   = calcularVariacion(serie.get(0).getPrecioMedio(),
+        String variacionTotal = calcularVariacion(serie.get(0).getPrecioMedio(),
                 serie.get(serie.size() - 1).getPrecioMedio());
-        String variacionUltimo  = serie.size() >= 2
+        String variacionUltimo = serie.size() >= 2
                 ? calcularVariacion(serie.get(serie.size() - 2).getPrecioMedio(),
                 serie.get(serie.size() - 1).getPrecioMedio())
                 : "N/A";
@@ -442,6 +460,32 @@ public class StatsService {
     // ─────────────────────────────────────────────────────────────
     // Helpers privados
     // ─────────────────────────────────────────────────────────────
+    private List<StatsBarrioMensual> deduplicarPorMesBarrio(List<StatsBarrioMensual> filas) {
+        return new ArrayList<>(filas.stream()
+                .collect(Collectors.toMap(
+                        StatsBarrioMensual::getMes,
+                        f -> f,
+                        (a, b) -> a.getId() > b.getId() ? a : b,
+                        TreeMap::new
+                ))
+                .values());
+    }
+    /**
+     * Para cada mes, conserva la fila con el id más alto (= la más reciente
+     * si el job hace INSERT en lugar de UPSERT). El resultado sale ordenado
+     * por mes ASC, igual que la query original.
+     */
+    private List<StatsCiudadMensual> deduplicarPorMesCiudad(List<StatsCiudadMensual> filas) {
+        return new ArrayList<>(filas.stream()
+                .collect(Collectors.toMap(
+                        StatsCiudadMensual::getMes,
+                        f -> f,
+                        // si hay dos filas para el mismo mes, nos quedamos con la de id mayor
+                        (a, b) -> a.getId() > b.getId() ? a : b,
+                        TreeMap::new   // mantiene orden natural de LocalDate (ASC)
+                ))
+                .values());
+    }
 
     /** Agrega varias filas mensuales de ciudad en una sola (usa la última como referencia para p25/p75). */
     private StatsCiudadMensual agregarCiudad(List<StatsCiudadMensual> filas) {
