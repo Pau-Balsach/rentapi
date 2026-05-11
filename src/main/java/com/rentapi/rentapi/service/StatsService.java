@@ -286,27 +286,31 @@ public class StatsService {
     // ─────────────────────────────────────────────────────────────
     // GET /stats/ranking
     // ─────────────────────────────────────────────────────────────
-
     public RankingResponse getRanking(String tipo,
                                       String orden,
                                       String provinciaSlug,
                                       int limite) {
 
-        int limiteReal = Math.min(limite, 50);
+        int limiteReal = Math.min(limite, 200);
+
+        // Buscar el mes más reciente con datos disponibles
         LocalDate mesActual = LocalDate.now().withDayOfMonth(1);
+        LocalDate mesEfectivo = ciudadStatsRepo.findAll().stream()
+                .map(StatsCiudadMensual::getMes)
+                .filter(m -> !m.isAfter(mesActual))
+                .max(Comparator.naturalOrder())
+                .orElse(mesActual);
 
         List<RankingItem> items = new ArrayList<>();
 
         if ("barrio".equalsIgnoreCase(tipo)) {
-            // Obtenemos todas las filas del mes actual con habitaciones=NULL
             List<StatsBarrioMensual> filas = barrioStatsRepo
                     .findByBarrio_Ciudad_SlugAndMesAndHabitaciones(
-                            provinciaSlug != null ? provinciaSlug : "", mesActual, null);
+                            provinciaSlug != null ? provinciaSlug : "", mesEfectivo, null);
 
-            // Si se especificó provincia, el filtro ya está en la query; si no, traemos todo el mes
             if (provinciaSlug == null || provinciaSlug.isBlank()) {
                 filas = barrioStatsRepo.findAll().stream()
-                        .filter(f -> f.getMes().equals(mesActual) && f.getHabitaciones() == null)
+                        .filter(f -> f.getMes().equals(mesEfectivo) && f.getHabitaciones() == null)
                         .collect(Collectors.toList());
             }
 
@@ -325,12 +329,10 @@ public class StatsService {
                         .build());
             }
         } else {
-            // Ciudades — mes actual, habitaciones=NULL
             List<StatsCiudadMensual> filas = ciudadStatsRepo.findAll().stream()
-                    .filter(f -> f.getMes().equals(mesActual) && f.getHabitaciones() == null)
+                    .filter(f -> f.getMes().equals(mesEfectivo) && f.getHabitaciones() == null)
                     .collect(Collectors.toList());
 
-            // Filtro por provincia si se especifica
             if (provinciaSlug != null && !provinciaSlug.isBlank()) {
                 filas = filas.stream()
                         .filter(f -> f.getCiudad().getProvincia() != null &&
@@ -356,7 +358,7 @@ public class StatsService {
 
         return RankingResponse.builder()
                 .tipo(tipo)
-                .orden(orden)
+                .orden(orden != null ? orden : "asc")
                 .ranking(items)
                 .build();
     }
