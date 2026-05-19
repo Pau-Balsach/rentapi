@@ -10,7 +10,7 @@
 
 **API REST pública y open source de estadísticas del mercado de alquiler en España.**
 
-RentAPI agrega datos de portales inmobiliarios (Idealista, Fotocasa, Habitaclia) y los transforma en estadísticas limpias y estructuradas: precios medios, tendencias mensuales, rankings por ciudad y barrio, y evaluación de pisos concretos.
+RentAPI agrega datos de portales inmobiliarios (Idealista, Habitaclia) y los transforma en estadísticas limpias y estructuradas: precios medios, tendencias mensuales, rankings por ciudad y barrio, y evaluación de pisos concretos.
 
 > 🌐 **API Live:** https://rentapi-b6gc.onrender.com
 > 📖 **Swagger UI:** https://rentapi-b6gc.onrender.com/swagger-ui/index.html
@@ -249,7 +249,7 @@ mvn verify
 
 ## Nota legal
 
-El scraping de portales como Idealista o Fotocasa puede estar restringido en sus Términos de Servicio. Este proyecto es de carácter **educativo y de portfolio**. El scraping se realiza de forma respetuosa: delays entre peticiones, sin sobrecargar servidores, respetando `robots.txt` en la medida de lo posible. El autor asume la responsabilidad del uso.
+El scraping de portales como Idealista o Habitaclia puede estar restringido en sus Términos de Servicio. Este proyecto es de carácter **educativo y de portfolio**. El scraping se realiza de forma respetuosa: delays entre peticiones, sin sobrecargar servidores, respetando `robots.txt` en la medida de lo posible. El autor asume la responsabilidad del uso.
 
 ---
 
