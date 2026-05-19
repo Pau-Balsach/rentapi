@@ -12,8 +12,8 @@
 
 RentAPI agrega datos de portales inmobiliarios (Idealista, Habitaclia) y los transforma en estadísticas limpias y estructuradas: precios medios, tendencias mensuales, rankings por ciudad y barrio, y evaluación de pisos concretos.
 
-> 🌐 **API Live:** https://rentapi-b6gc.onrender.com
-> 📖 **Swagger UI:** https://rentapi-b6gc.onrender.com/swagger-ui/index.html
+> 🌐 **API Live:** https://rentapi-tuaq.onrender.com
+> 📖 **Swagger UI:** https://rentapi-tuaq.onrender.com/swagger-ui/index.html
 
 ---
 
