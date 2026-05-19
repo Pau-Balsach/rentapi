@@ -13,10 +13,12 @@ import com.rentapi.rentapi.repository.StatsBarrioMensualRepository;
 import com.rentapi.rentapi.repository.StatsCiudadMensualRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -286,6 +288,7 @@ public class StatsService {
     // ─────────────────────────────────────────────────────────────
     // GET /stats/ranking
     // ─────────────────────────────────────────────────────────────
+    @Transactional(readOnly = true)
     public RankingResponse getRanking(String tipo,
                                       String orden,
                                       String provinciaSlug,
@@ -293,30 +296,43 @@ public class StatsService {
 
         int limiteReal = Math.min(limite, 200);
 
-        // Buscar el mes más reciente con datos disponibles
-        LocalDate mesActual = LocalDate.now().withDayOfMonth(1);
-        LocalDate mesEfectivo = ciudadStatsRepo.findAll().stream()
-                .map(StatsCiudadMensual::getMes)
-                .filter(m -> !m.isAfter(mesActual))
+        // Buscar el año-mes más reciente ignorando el día exacto,
+        // ya que el scraper puede insertar con días distintos (ej: 2026-05-07 vs 2026-05-01)
+        YearMonth mesActualYM = YearMonth.now();
+        YearMonth mesEfectivoYM = ciudadStatsRepo.findAll().stream()
+                .map(f -> YearMonth.from(f.getMes()))
+                .filter(ym -> !ym.isAfter(mesActualYM))
                 .max(Comparator.naturalOrder())
-                .orElse(mesActual);
+                .orElse(mesActualYM);
 
         List<RankingItem> items = new ArrayList<>();
 
         if ("barrio".equalsIgnoreCase(tipo)) {
-            List<StatsBarrioMensual> filas = barrioStatsRepo
-                    .findByBarrio_Ciudad_SlugAndMesAndHabitaciones(
-                            provinciaSlug != null ? provinciaSlug : "", mesEfectivo, null);
+            // Deduplicar por barrio_id quedándonos con la fila de mayor totalMuestras,
+            // y filtrar precios nulos, cero o absurdos (> 100 €/m² imposible en alquiler)
+            List<StatsBarrioMensual> filas = barrioStatsRepo.findAll().stream()
+                    .filter(f -> YearMonth.from(f.getMes()).equals(mesEfectivoYM)
+                            && f.getHabitaciones() == null)
+                    .collect(Collectors.toMap(
+                            f -> f.getBarrio().getId(),
+                            f -> f,
+                            (a, b) -> (a.getTotalMuestras() != null && b.getTotalMuestras() != null
+                                    && a.getTotalMuestras() >= b.getTotalMuestras()) ? a : b
+                    ))
+                    .values().stream()
+                    .filter(f -> f.getPrecioMedioM2() != null
+                            && f.getPrecioMedioM2().compareTo(BigDecimal.ZERO) > 0
+                            && f.getPrecioMedioM2().compareTo(new BigDecimal("100")) <= 0)
+                    .collect(Collectors.toList());
 
-            if (provinciaSlug == null || provinciaSlug.isBlank()) {
-                filas = barrioStatsRepo.findAll().stream()
-                        .filter(f -> f.getMes().equals(mesEfectivo) && f.getHabitaciones() == null)
+            if (provinciaSlug != null && !provinciaSlug.isBlank()) {
+                filas = filas.stream()
+                        .filter(f -> f.getBarrio().getCiudad().getProvincia() != null &&
+                                provinciaSlug.equals(f.getBarrio().getCiudad().getProvincia().getSlug()))
                         .collect(Collectors.toList());
             }
 
-            filas.sort(Comparator.comparing(f -> f.getPrecioMedioM2() != null
-                    ? f.getPrecioMedioM2() : BigDecimal.ZERO));
-
+            filas.sort(Comparator.comparing(f -> f.getPrecioMedioM2()));
             if ("desc".equalsIgnoreCase(orden)) Collections.reverse(filas);
 
             for (int i = 0; i < Math.min(limiteReal, filas.size()); i++) {
@@ -329,8 +345,21 @@ public class StatsService {
                         .build());
             }
         } else {
+            // Deduplicar por ciudad_id quedándonos con la fila de mayor totalMuestras,
+            // y filtrar precios nulos, cero o absurdos (> 100 €/m² imposible en alquiler)
             List<StatsCiudadMensual> filas = ciudadStatsRepo.findAll().stream()
-                    .filter(f -> f.getMes().equals(mesEfectivo) && f.getHabitaciones() == null)
+                    .filter(f -> YearMonth.from(f.getMes()).equals(mesEfectivoYM)
+                            && f.getHabitaciones() == null)
+                    .collect(Collectors.toMap(
+                            f -> f.getCiudad().getId(),
+                            f -> f,
+                            (a, b) -> (a.getTotalMuestras() != null && b.getTotalMuestras() != null
+                                    && a.getTotalMuestras() >= b.getTotalMuestras()) ? a : b
+                    ))
+                    .values().stream()
+                    .filter(f -> f.getPrecioMedioM2() != null
+                            && f.getPrecioMedioM2().compareTo(BigDecimal.ZERO) > 0
+                            && f.getPrecioMedioM2().compareTo(new BigDecimal("100")) <= 0)
                     .collect(Collectors.toList());
 
             if (provinciaSlug != null && !provinciaSlug.isBlank()) {
@@ -340,9 +369,7 @@ public class StatsService {
                         .collect(Collectors.toList());
             }
 
-            filas.sort(Comparator.comparing(f -> f.getPrecioMedioM2() != null
-                    ? f.getPrecioMedioM2() : BigDecimal.ZERO));
-
+            filas.sort(Comparator.comparing(f -> f.getPrecioMedioM2()));
             if ("desc".equalsIgnoreCase(orden)) Collections.reverse(filas);
 
             for (int i = 0; i < Math.min(limiteReal, filas.size()); i++) {

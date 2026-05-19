@@ -67,4 +67,5 @@ public class StatsCiudadMensual {
     public void prePersist() {
         this.createdAt = LocalDateTime.now();
     }
+
 }
